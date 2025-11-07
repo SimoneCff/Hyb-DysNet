@@ -213,6 +213,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, help='Number of epochs', default=100)
     parser.add_argument('--batch-size', type=int, default=16,help='Batch size')
     parser.add_argument ('--num-workers', type=int, default=4, help='Number of workers for the dataset')
+    parser.add_argument('--resume',type=str, help='resume with a checkpoint')
     opt = parser.parse_args()
     
     Train(opt)
