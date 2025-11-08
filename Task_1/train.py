@@ -4,12 +4,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from pathlib import Path
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import torchmetrics
+from datetime import datetime 
+
 from rich.progress import (
     Progress,
     BarColumn,
@@ -18,60 +16,32 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 
-from Model.utils import data_adaptation, collate_fn_1d, calculate_weight_classes
+from Model.utils import data_adaptation, collate_fn_1d, calculate_weight_classes, plot_confusion_matrix,  plot_metrics_history
 from Model.model import SANDClassifier
 
 LEARNING_RATE = 1e-4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSI = 5
 
-Path("outputs").mkdir(exist_ok=True)
-
-def plot_confusion_matrix(cm_tensor, epoch):
-    cm_numpy = cm_tensor.cpu().numpy()
-    cm_norm = np.around(cm_numpy.astype('float') / cm_numpy.sum(axis=1)[:, np.newaxis], decimals=2)
-    fig = plt.figure(figsize=(10, 8))
-    sns.heatmap(
-        cm_norm, annot=True, fmt='.2f', cmap='Blues',
-        xticklabels=range(1, NUM_CLASSI + 1),
-        yticklabels=range(1, NUM_CLASSI + 1)
-    )
-    plt.ylabel('True Label (1-5)')
-    plt.xlabel('Predicted Label (1-5)')
-    plt.title(f'Confusion Matrix - Epoch {epoch}')
-    plt.savefig(f"outputs/confusion_matrix_epoch_{epoch}.png")
-    plt.close(fig)
-
 
 def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Progress, epoch_task, train_acc_metric):
     model.train()
     total_loss = 0.0
     train_acc_metric.reset()
-    
-    task = progress.add_task(
-        "  [green]Training...", 
-        total=len(data_loader), 
-        metrics="Loss: 0.0",
-        transient=True
-    )
+    task = progress.add_task("  [green]Training...", total=len(data_loader), metrics="Loss: 0.0", transient=True)
     
     for i, (waveforms, labels) in enumerate(data_loader):
         waveforms = waveforms.to(device)
         labels = labels.to(device)
-        
         logits = model(waveforms)
         loss = loss_fn(logits, labels)
-        
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
         current_loss = loss.item()
         total_loss += current_loss
-        
         preds = torch.argmax(logits, dim=1)
         train_acc_metric.update(preds, labels)
-
         progress.update(task, advance=1, metrics=f"Loss: {current_loss:.4f}")
         
     progress.remove_task(task)
@@ -85,38 +55,25 @@ def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, 
     total_loss = 0.0
     total_confidence = 0.0
     for m in metrics.values(): m.reset()
-    
-    task = progress_bar.add_task(
-        "  [cyan]Validating...", 
-        total=len(data_loader), 
-        metrics="Loss: 0.0", 
-        transient=True
-    )
+    task = progress_bar.add_task("  [cyan]Validating...", total=len(data_loader), metrics="Loss: 0.0", transient=True)
     
     for waveforms, labels in data_loader:
         waveforms = waveforms.to(device)
         labels = labels.to(device)
-        
         logits = model(waveforms)
         loss = loss_fn(logits, labels)
-        
         current_loss = loss.item()
         total_loss += current_loss
-        
         preds = torch.argmax(logits, dim=1)
         metrics['f1'].update(preds, labels)
         metrics['acc'].update(preds, labels)
         metrics['cm'].update(preds, labels)
-        
         probs = torch.softmax(logits, dim=1) 
         confidences = torch.max(probs, dim=1).values
         total_confidence += torch.mean(confidences).item()
-        
-
         progress_bar.update(task, advance=1, metrics=f"Loss: {current_loss:.4f}")
     
     progress_bar.remove_task(task)
-    
     avg_loss = total_loss / len(data_loader)
     avg_conf = total_confidence / len(data_loader)
     epoch_f1 = metrics['f1'].compute()
@@ -125,10 +82,17 @@ def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, 
     
     return avg_loss, epoch_acc, epoch_f1, avg_conf, epoch_cm_data
 
-
-def Train(opt):
+def Train(opt): 
+    now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    exp_dir = Path(f"outputs/train-{now_str}")
+    cm_dir = exp_dir / "confusion_matrices"
+    ckpt_dir = exp_dir / "checkpoints"
     
-    Path("outputs").mkdir(exist_ok=True)
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    cm_dir.mkdir()
+    ckpt_dir.mkdir()
+    
+    print(f"--- Dati di output salvati in: {exp_dir} ---")
     print(f"Using device: {DEVICE}")
 
     print("--- 1. Preparing Data ---")
@@ -160,12 +124,35 @@ def Train(opt):
         "cm": torchmetrics.ConfusionMatrix(task="multiclass", num_classes=NUM_CLASSI).to(DEVICE)
     }
     print("Metrics ready (F1-Score userà 'average=macro').")
+
+    start_epoch = 1
+    best_val_f1 = -1.0
+    history = {
+        'train_loss': [], 'train_acc': [],
+        'val_loss': [], 'val_acc': [], 'val_f1': []
+    }
+    
+    if opt.resume:
+        resume_path = Path(opt.resume)
+        if resume_path.is_file():
+            print(f"--- Resuming training from checkpoint: {resume_path} ---")
+            checkpoint = torch.load(resume_path, map_location=DEVICE)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1 
+            if 'best_val_f1' in checkpoint:
+                 best_val_f1 = checkpoint['best_val_f1']
+            if 'history' in checkpoint:
+                history = checkpoint['history']
+            print(f"Resuming from Epoch {start_epoch}. Best F1 so far: {best_val_f1:.4f}")
+        else:
+            print(f"Attenzione: Checkpoint '{opt.resume}' non trovato. Inizio da zero.")
+    else:
+        print("--- Starting training from scratch (Epoch 1) ---")
     
     progress = Progress(
         TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeRemainingColumn(),
+        BarColumn(), MofNCompleteColumn(), TimeRemainingColumn(),
         TextColumn("[blue]{task.fields[metrics]}", justify="right"),
     )
     
@@ -174,10 +161,11 @@ def Train(opt):
         epoch_task = progress.add_task(
             "[magenta]Epoch",
             total=opt.epochs,
-            metrics=""
+            metrics="",
+            completed=start_epoch - 1 
         )
         
-        for epoch in range(1, opt.epochs + 1):
+        for epoch in range(start_epoch, opt.epochs + 1):
             
             avg_train_loss, avg_train_acc = train_one_epoch(
                 model, train_loader, loss_fn, optimizer, DEVICE, progress, epoch_task, train_acc_metric
@@ -187,23 +175,59 @@ def Train(opt):
                 model, val_loader, loss_fn, DEVICE, progress, epoch_task, val_metrics
             )
             
-            plot_confusion_matrix(epoch_cm, epoch)
-            
+            plot_confusion_matrix(epoch_cm, epoch, cm_dir)
+            history['train_loss'].append(avg_train_loss)
+            history['train_acc'].append(avg_train_acc.item()) 
+            history['val_loss'].append(avg_val_loss)
+            history['val_acc'].append(epoch_acc.item())
+            history['val_f1'].append(epoch_f1.item())
+
             metrics_str = (
                 f"Tr.L: {avg_train_loss:.4f}, Tr.A: {avg_train_acc:.4f} | "
                 f"Val.L: {avg_val_loss:.4f}, Val.Acc: {epoch_acc:.4f}, Val.F1: {epoch_f1:.4f}, Val.Conf: {avg_conf:.4f}"
             )
             
-            progress.update(
-                epoch_task, 
-                advance=1, 
-                metrics=metrics_str
-            )
+            
+            is_best = epoch_f1 > best_val_f1
+            if is_best:
+                best_val_f1 = epoch_f1
+                best_model_path = ckpt_dir / "best.pth"
+                torch.save(model.state_dict(), best_model_path)
+                metrics_str += " [yellow](Best Model Saved!)"
+            
+            if epoch % 10 == 0 or epoch == opt.epochs:
+                checkpoint_path = ckpt_dir / f"epoch_{epoch}.pth"
+                
+                checkpoint = {
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'best_val_f1': best_val_f1,
+                    'history': history 
+                }
+                torch.save(checkpoint, checkpoint_path)
+
+            progress.update(epoch_task, advance=1, metrics=metrics_str)
             
     print(f"\n--- Training Completed ---")
-    print(f"Confusion matrix plots saved to 'outputs/' directory.")
-    torch.save(model.state_dict(), "SAND_Task1.pth")
-    print("Final model saved to 'SAND_Task1.pth'")
+    
+    print("Generating metrics history plot...")
+    plot_metrics_history(history, opt.epochs, exp_dir, NUM_CLASSI)
+    
+    print(f"Saving final model to 'last.pth'...")
+    last_checkpoint_path = ckpt_dir / "last.pth"
+    checkpoint = {
+        'epoch': opt.epochs,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'best_val_f1': best_val_f1,
+        'history': history
+    }
+    torch.save(checkpoint, last_checkpoint_path)
+
+    print(f"Plots saved to '{exp_dir}' and '{cm_dir}'.")
+    print(f"Checkpoints saved to '{ckpt_dir}'.")
+    print(f"Best model (F1: {best_val_f1:.4f}) saved to '{ckpt_dir}/best.pth'.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -211,9 +235,9 @@ if __name__ == "__main__":
     parser.add_argument('--audio-path', type=str,help='Audio Path location',required=True)
     parser.add_argument('--target-sample', type=int, help='Audio Sample Rate', default=16000) 
     parser.add_argument('--epochs', type=int, help='Number of epochs', default=100)
-    parser.add_argument('--batch-size', type=int, default=16,help='Batch size')
-    parser.add_argument ('--num-workers', type=int, default=4, help='Number of workers for the dataset')
-    parser.add_argument('--resume',type=str, help='resume with a checkpoint')
+    parser.add_argument('--batch-size', type=int, default=32,help='Batch size (Default: 32 per V100 32GB)')
+    parser.add_argument ('--num-workers', type=int, default=8, help='Number of workers (Default: 8, abbinalo a --cpus-per-task)')
+    parser.add_argument('--resume',type=str, default=None, help='resume with a checkpoint (path to .pth file)')
     opt = parser.parse_args()
     
     Train(opt)

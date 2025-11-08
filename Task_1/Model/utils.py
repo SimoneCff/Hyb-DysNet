@@ -3,11 +3,15 @@ from sklearn.model_selection import train_test_split
 from .dataset import SandDataset
 from torch.nn.utils.rnn import pad_sequence
 from sklearn.utils.class_weight import compute_class_weight
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 import re
 import torch
 import pandas as pd
 import numpy as np
+import seaborn as sns
 
 def data_adaptation(csv_path: str, audio_root: str, target_sampler: int, test_size: float = 0.25, random_state: int = 42):
     try:
@@ -99,3 +103,52 @@ def calculate_weight_classes(csv_path):
     )
     
     return torch.tensor(weights, dtype=torch.float32)
+
+
+def plot_confusion_matrix(cm_tensor, epoch, save_dir: Path, num_classes):
+    cm_numpy = cm_tensor.cpu().numpy()
+    cm_sum = cm_numpy.sum(axis=1)[:, np.newaxis]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        cm_norm = np.nan_to_num(cm_numpy.astype('float') / cm_sum, nan=0.0)
+    cm_norm = np.around(cm_norm, decimals=2)
+    
+    fig = plt.figure(figsize=(10, 8))
+    sns.heatmap(
+        cm_norm, annot=True, fmt='.2f', cmap='Blues',
+        xticklabels=range(1, num_classes + 1),
+        yticklabels=range(1, num_classes + 1)
+    )
+    plt.ylabel('True Label (1-5)')
+    plt.xlabel('Predicted Label (1-5)')
+    plt.title(f'Confusion Matrix - Epoch {epoch}')
+    plt.savefig(save_dir / f"confusion_matrix_epoch_{epoch}.png") 
+    plt.close(fig)
+
+
+def plot_metrics_history(history: dict, epochs: int, save_dir: Path): # Accetta la cartella
+    epochs_range = range(1, epochs + 1)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 18), sharex=True)
+    
+    ax1.plot(epochs_range, history['train_loss'], 'b-', label='Training Loss')
+    ax1.plot(epochs_range, history['val_loss'], 'r-', label='Validation Loss')
+    ax1.set_ylabel('Loss')
+    ax1.set_title('Training and Validation Loss')
+    ax1.legend()
+    ax1.grid(True)
+    
+    ax2.plot(epochs_range, history['train_acc'], 'b-', label='Training Accuracy')
+    ax2.plot(epochs_range, history['val_acc'], 'r-', label='Validation Accuracy')
+    ax2.set_ylabel('Accuracy')
+    ax2.set_title('Training and Validation Accuracy')
+    ax2.legend()
+    ax2.grid(True)
+    ax3.plot(epochs_range, history['val_f1'], 'r-', label='Validation F1-Score (Macro)')
+    ax3.set_xlabel('Epochs')
+    ax3.set_ylabel('F1-Score (Macro)')
+    ax3.set_title('Validation F1-Score')
+    ax3.legend()
+    ax3.grid(True)
+    
+    plt.tight_layout()
+    plt.savefig(save_dir / "metrics_history.png") 
+    plt.close(fig)
