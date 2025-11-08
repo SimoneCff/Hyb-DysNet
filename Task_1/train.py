@@ -195,7 +195,7 @@ def Train(opt):
                 metrics_str += " [yellow](Best Model Saved!)"
             
             if epoch % 10 == 0 or epoch == opt.epochs:
-                plot_confusion_matrix(epoch_cm, epoch, cm_dir)
+                plot_confusion_matrix(epoch_cm, epoch, cm_dir, NUM_CLASSI)
                 checkpoint_path = ckpt_dir / f"epoch_{epoch}.pth"
                 
                 checkpoint = {
@@ -212,7 +212,7 @@ def Train(opt):
     print(f"\n--- Training Completed ---")
     
     print("Generating metrics history plot...")
-    plot_metrics_history(history, opt.epochs, exp_dir, NUM_CLASSI)
+    plot_metrics_history(history, opt.epochs, exp_dir)
     
     print(f"Saving final model to 'last.pth'...")
     last_checkpoint_path = ckpt_dir / "last.pth"
