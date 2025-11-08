@@ -175,7 +175,6 @@ def Train(opt):
                 model, val_loader, loss_fn, DEVICE, progress, epoch_task, val_metrics
             )
             
-            plot_confusion_matrix(epoch_cm, epoch, cm_dir)
             history['train_loss'].append(avg_train_loss)
             history['train_acc'].append(avg_train_acc.item()) 
             history['val_loss'].append(avg_val_loss)
@@ -196,6 +195,7 @@ def Train(opt):
                 metrics_str += " [yellow](Best Model Saved!)"
             
             if epoch % 10 == 0 or epoch == opt.epochs:
+                plot_confusion_matrix(epoch_cm, epoch, cm_dir)
                 checkpoint_path = ckpt_dir / f"epoch_{epoch}.pth"
                 
                 checkpoint = {
