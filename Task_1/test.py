@@ -19,7 +19,7 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 
 from Model.model import SANDClassifier
 from Model.utils import collate_fn_1d, plot_confusion_matrix, plot_precision_recall_curve, plot_precision_recall_curve, prepare_test_data
-from Model.dataset import CustomAudioDataset 
+from Model.dataset import SandDataset 
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -99,7 +99,7 @@ def Test(opt):
         print(f"Error preparing data: {e}")
         return
 
-    test_dataset = CustomAudioDataset(file_list=test_file_list, label_map=label_map, target_sample_rate=opt.target_sample)
+    test_dataset = SandDataset(file_list=test_file_list, label_map=label_map, target_sample_rate=opt.target_sample)
     test_loader = DataLoader(
         dataset=test_dataset, batch_size=opt.batch_size, shuffle=False,
         num_workers=opt.num_workers, collate_fn=collate_fn_1d
