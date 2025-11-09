@@ -70,9 +70,19 @@ def data_adaptation(csv_path: str, audio_root: str, target_sampler: int, test_si
         elif id_soggetto in val_id_set:
             val_file_list.append(file_path)
             
-    print("--- 3. Creazione Istanze Dataset PyTorch ---")
-    train_dataset = SandDataset(file_list=train_file_list, label_map=label_map, target_sample_rate=target_sampler)
-    val_dataset = SandDataset(file_list=val_file_list, label_map=label_map, target_sample_rate=target_sampler)
+    print("--- 3. Creating Dataset instance ---")
+    train_dataset = SandDataset(
+        file_list=train_file_list, 
+        label_map=label_map, 
+        target_sample_rate=target_sampler,
+        is_training=True
+    )
+    val_dataset = SandDataset(
+        file_list=val_file_list, 
+        label_map=label_map, 
+        target_sample_rate=target_sampler,
+        is_training=False # 
+    )
     
     return train_dataset, val_dataset
 

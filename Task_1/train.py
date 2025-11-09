@@ -15,13 +15,14 @@ from rich.progress import (
     TimeRemainingColumn,
     MofNCompleteColumn,
 )
-
+from rich import print
 from Model.utils import data_adaptation, collate_fn_1d, calculate_weight_classes, plot_confusion_matrix,  plot_metrics_history
 from Model.model import SANDClassifier
 
 LEARNING_RATE = 1e-4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSI = 5
+EARLY_STOPPING_PATIENCE = 20
 
 
 def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Progress, epoch_task, train_acc_metric):
@@ -127,6 +128,7 @@ def Train(opt):
 
     start_epoch = 1
     best_val_f1 = -1.0
+    epochs_no_improve = 0
     history = {
         'train_loss': [], 'train_acc': [],
         'val_loss': [], 'val_acc': [], 'val_f1': []
@@ -137,13 +139,23 @@ def Train(opt):
         if resume_path.is_file():
             print(f"--- Resuming training from checkpoint: {resume_path} ---")
             checkpoint = torch.load(resume_path, map_location=DEVICE)
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            start_epoch = checkpoint['epoch'] + 1 
-            if 'best_val_f1' in checkpoint:
-                 best_val_f1 = checkpoint['best_val_f1']
-            if 'history' in checkpoint:
-                history = checkpoint['history']
+            
+            if 'model_state_dict' in checkpoint:
+                print("Checkpoint completo trovato. Carico modello, ottimizzatore e cronologia.")
+                model.load_state_dict(checkpoint['model_state_dict'])
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                start_epoch = checkpoint['epoch'] + 1 
+                if 'best_val_f1' in checkpoint:
+                     best_val_f1 = checkpoint['best_val_f1']
+                if 'history' in checkpoint:
+                    history = checkpoint['history']
+                if 'epochs_no_improve' in checkpoint: # <-- NUOVO
+                     epochs_no_improve = checkpoint['epochs_no_improve']
+            else:
+                print("Checkpoint 'legacy' (solo pesi) trovato. Carico solo il modello.")
+                model.load_state_dict(checkpoint)
+                start_epoch = 1 
+                 
             print(f"Resuming from Epoch {start_epoch}. Best F1 so far: {best_val_f1:.4f}")
         else:
             print(f"Attenzione: Checkpoint '{opt.resume}' non trovato. Inizio da zero.")
@@ -193,9 +205,13 @@ def Train(opt):
                 best_model_path = ckpt_dir / "best.pth"
                 torch.save(model.state_dict(), best_model_path)
                 metrics_str += " [yellow](Best Model Saved!)"
+                epochs_no_improve = 0 # <-- NUOVO: Azzera il contatore
+            else:
+                epochs_no_improve += 1 # <-- NUOVO: Incrementa il contatore
+                metrics_str += f" [red](Patience: {epochs_no_improve}/{EARLY_STOPPING_PATIENCE})"
             
+            # Salva checkpoint periodico (ogni 10 epoche)
             if epoch % 10 == 0 or epoch == opt.epochs:
-                plot_confusion_matrix(epoch_cm, epoch, cm_dir, NUM_CLASSI)
                 checkpoint_path = ckpt_dir / f"epoch_{epoch}.pth"
                 
                 checkpoint = {
@@ -203,7 +219,8 @@ def Train(opt):
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'best_val_f1': best_val_f1,
-                    'history': history 
+                    'history': history,
+                    'epochs_no_improve': epochs_no_improve
                 }
                 torch.save(checkpoint, checkpoint_path)
 
