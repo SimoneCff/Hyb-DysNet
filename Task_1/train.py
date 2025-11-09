@@ -195,7 +195,7 @@ def Train(opt):
                 metrics_str += " [yellow](Best Model Saved!)"
             
             if epoch % 10 == 0 or epoch == opt.epochs:
-                plot_confusion_matrix(epoch_cm, epoch, cm_dir)
+                plot_confusion_matrix(epoch_cm, epoch, cm_dir, NUM_CLASSI)
                 checkpoint_path = ckpt_dir / f"epoch_{epoch}.pth"
                 
                 checkpoint = {
@@ -212,7 +212,7 @@ def Train(opt):
     print(f"\n--- Training Completed ---")
     
     print("Generating metrics history plot...")
-    plot_metrics_history(history, opt.epochs, exp_dir, NUM_CLASSI)
+    plot_metrics_history(history, opt.epochs, exp_dir)
     
     print(f"Saving final model to 'last.pth'...")
     last_checkpoint_path = ckpt_dir / "last.pth"
@@ -231,13 +231,13 @@ def Train(opt):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--csv-path', type=str,help='CSV/Excel Path location',required=True)
-    parser.add_argument('--audio-path', type=str,help='Audio Path location',required=True)
+    parser.add_argument('--csv-path', type=str,help='Path to the TEST CSV/Excel file',required=True)
+    parser.add_argument('--audio-path', type=str,help='Path to the ROOT audio folder',required=True)
     parser.add_argument('--target-sample', type=int, help='Audio Sample Rate', default=16000) 
     parser.add_argument('--epochs', type=int, help='Number of epochs', default=100)
-    parser.add_argument('--batch-size', type=int, default=32,help='Batch size (Default: 32 per V100 32GB)')
-    parser.add_argument ('--num-workers', type=int, default=8, help='Number of workers (Default: 8, abbinalo a --cpus-per-task)')
-    parser.add_argument('--resume',type=str, default=None, help='resume with a checkpoint (path to .pth file)')
+    parser.add_argument('--batch-size', type=int, default=32,help='Batch size for training')
+    parser.add_argument ('--num-workers', type=int, default=8, help='Number of data loading workers')
+    parser.add_argument('--resume',type=str, default=None, help='Resume with a checkpoint (path to .pth file)')
     opt = parser.parse_args()
     
     Train(opt)
