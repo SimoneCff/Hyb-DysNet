@@ -1,6 +1,4 @@
 .vscode
 task1
 run.sbatch
-gpu.err
-gpu.out
-outputs
+Model/__pycache__
