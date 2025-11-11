@@ -1,6 +1,6 @@
-outputs/
-task1/
-.DS_Store
-.vscode/
+.vscode
+task1
 run.sbatch
-Model/__pycache__
+gpu.err
+gpu.out
+outputs
