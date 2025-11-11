@@ -19,7 +19,7 @@ class SANDClassifier(nn.Module):
         
 
 def crea_modello(num_classes=5, freeze=False):
-    print(f"--- Creazione Modello (FSL Encoder Wav2Vec2) ---")
-    print(f"Encoder congelato: {freeze}")   
+    print(f"--- Model Creation (FSL Encoder Wav2Vec2) ---")
+    print(f"Freeze Encoder: {freeze}")   
     model = SANDClassifier(num_classes=num_classes, freeze_encoder=freeze)
     return model

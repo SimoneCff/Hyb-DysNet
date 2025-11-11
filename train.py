@@ -22,18 +22,16 @@ from rich.progress import (
 )
 from rich import print 
 
-# Import dei tuoi moduli
 from Model.utils import data_adaptation, collate_fn_1d, calculate_weight_classes
 from Model.model import crea_modello 
 
-# --- 1. CONFIGURAZIONE ---
+
 LEARNING_RATE = 1e-5 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Rileverà CUDA
 NUM_CLASSI = 5
 CHECKPOINT_DIR_BASE = Path("outputs") 
 EARLY_STOPPING_PATIENCE = 20 
 
-# --- 2. FUNZIONI DI PLOT (Nessuna modifica) ---
 def plot_confusion_matrix(cm_tensor, epoch, save_dir: Path):
     cm_numpy = cm_tensor.cpu().numpy()
     cm_sum = cm_numpy.sum(axis=1)[:, np.newaxis]
@@ -73,12 +71,7 @@ def plot_metrics_history(history: dict, save_dir: Path):
     plt.savefig(save_dir / "metrics_history.png")
     plt.close(fig)
 
-# --- 3. FUNZIONE LOSS E PREDIZIONE PROTOTIPICA (MODIFICATA) ---
 def prototypical_step(embeddings: torch.Tensor, labels: torch.Tensor, device: torch.device):
-    """
-    Calcola prototipi, distanze e predizioni "in-batch".
-    Versione CUDA-compatibile (usa torch.cdist).
-    """
     prototypes = torch.zeros(NUM_CLASSI, embeddings.shape[1], device=device)
     class_counts = torch.zeros(NUM_CLASSI, device=device)
     
@@ -94,16 +87,10 @@ def prototypical_step(embeddings: torch.Tensor, labels: torch.Tensor, device: to
         return None, None, None 
         
     valid_prototypes = prototypes[valid_class_indices]
-    
-    # --- INIZIO MODIFICA: Ripristino di cdist ---
-    # Questa funzione è ottimizzata per CUDA e ora funzionerà.
     distances = torch.cdist(embeddings, valid_prototypes, p=2.0) ** 2
-    # --- FINE MODIFICA ---
 
-    # Mappa le etichette originali (0-4) ai nuovi indici (0-NumClassiValide)
     label_map = {original.item(): new for new, original in enumerate(valid_class_indices)}
     
-    # Filtra solo le etichette e le distanze che hanno un prototipo valido
     valid_mask = torch.isin(labels, valid_class_indices)
     valid_labels = labels[valid_mask]
     
@@ -113,16 +100,12 @@ def prototypical_step(embeddings: torch.Tensor, labels: torch.Tensor, device: to
     valid_distances = distances[valid_mask]
     mapped_labels = torch.tensor([label_map[l.item()] for l in valid_labels], device=device, dtype=torch.long)
     
-    # Le "logits" per la loss sono le distanze NEGATIVE
     logits = -valid_distances
-    
-    # Le predizioni sono l'indice della distanza MINORE
     preds_indices = torch.argmin(distances, dim=1)
     preds_original = valid_class_indices[preds_indices] # Converte di nuovo a 0-4
     
     return logits, mapped_labels, preds_original
 
-# --- 4. FUNZIONE DI TRAINING (MODIFICATA per skip robusto) ---
 def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Progress, epoch_task, train_acc_metric):
     model.train()
     total_loss = 0.0
@@ -131,7 +114,6 @@ def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Pr
     
     batches_skipped = 0
     for i, (waveforms, labels) in enumerate(data_loader):
-        # Aggiungi un controllo per i batch vuoti dal collate_fn
         if waveforms.shape[0] == 0:
             progress.update(task, advance=1, metrics="Loss: SKIPPED (Empty Batch)")
             batches_skipped += 1
@@ -167,7 +149,6 @@ def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Pr
     avg_epoch_loss = total_loss / num_valid_batches if num_valid_batches > 0 else 0.0
     return avg_epoch_loss, avg_epoch_acc
 
-# --- 5. FUNZIONE DI VALIDAZIONE (MODIFICATA per skip robusto) ---
 @torch.no_grad()
 def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, epoch_task_id, metrics: dict):
     model.eval()
@@ -225,7 +206,6 @@ def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, 
     
     return avg_loss, epoch_acc, epoch_f1, avg_conf, epoch_cm_data
 
-# --- 6. FUNZIONE DI TRAINING PRINCIPALE (Nessuna modifica) ---
 def Train(opt):
     
     now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -272,7 +252,6 @@ def Train(opt):
     }
     print("Metrics ready (F1-Score userà 'average=macro').")
 
-    # --- 6. LOGICA DI RESUME (Nessuna modifica) ---
     start_epoch = 1
     best_val_f1 = -1.0
     epochs_no_improve = 0 
@@ -317,7 +296,6 @@ def Train(opt):
     else:
         print("--- Starting training from scratch (Epoch 1) ---")
     
-    # --- 7. DEFINIZIONE BARRA DI PROGRESSO (Nessuna modifica) ---
     progress = Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(), MofNCompleteColumn(), TimeRemainingColumn(),
