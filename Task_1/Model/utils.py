@@ -70,9 +70,19 @@ def data_adaptation(csv_path: str, audio_root: str, target_sampler: int, test_si
         elif id_soggetto in val_id_set:
             val_file_list.append(file_path)
             
-    print("--- 3. Creazione Istanze Dataset PyTorch ---")
-    train_dataset = SandDataset(file_list=train_file_list, label_map=label_map, target_sample_rate=target_sampler)
-    val_dataset = SandDataset(file_list=val_file_list, label_map=label_map, target_sample_rate=target_sampler)
+    print("--- 3. Creating Dataset instance ---")
+    train_dataset = SandDataset(
+        file_list=train_file_list, 
+        label_map=label_map, 
+        target_sample_rate=target_sampler,
+        is_training=True
+    )
+    val_dataset = SandDataset(
+        file_list=val_file_list, 
+        label_map=label_map, 
+        target_sample_rate=target_sampler,
+        is_training=False # 
+    )
     
     return train_dataset, val_dataset
 
@@ -152,3 +162,49 @@ def plot_metrics_history(history: dict, epochs: int, save_dir: Path): # Accetta 
     plt.tight_layout()
     plt.savefig(save_dir / "metrics_history.png") 
     plt.close(fig)
+    
+def plot_precision_recall_curve(precision, recall, classes, save_dir: Path, num_classes):
+    fig = plt.figure(figsize=(12, 8))
+    for i in range(num_classes):
+        plt.plot(recall[i].cpu(), precision[i].cpu(), label=f'Class {i+1}')
+        
+    plt.title('Precision-Recall Curve per Class')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(save_dir / "precision_recall_curve.png")
+    plt.close(fig)
+
+def prepare_test_data(csv_path: str, audio_root: str):
+    print(f"--- 1. Loading test CSV from: {csv_path} ---")
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception:
+        df = pd.read_excel(csv_path)
+        
+    if 'ID' not in df.columns or 'Class' not in df.columns:
+        raise ValueError("CSV must contain 'ID' and 'Class' columns for validation.")
+
+    label_map = pd.Series(df.Class.values, index=df.ID).to_dict()
+    print(f"Label map created for {len(label_map)} patients.")
+
+    print(f"--- 2. Scanning audio files in: {audio_root} ---")
+    audio_root_path = Path(audio_root)
+    if not audio_root_path.is_dir():
+        raise FileNotFoundError(f"Audio root folder '{audio_root}' not found.")
+        
+    all_audio_files = list(audio_root_path.rglob("*.wav"))
+    
+    id_extractor = re.compile(r"(ID\d+)")
+    test_file_list = []
+    test_id_set = set(label_map.keys())
+    
+    for file_path in all_audio_files:
+        match = id_extractor.search(file_path.name)
+        if match and match.group(1) in test_id_set:
+            test_file_list.append(file_path)
+            
+    print(f"Found {len(test_file_list)} .wav files corresponding to the test CSV.")
+    
+    return test_file_list, label_map

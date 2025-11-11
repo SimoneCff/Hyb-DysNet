@@ -1,6 +1,10 @@
 Task_1/task1
 Task_1/outputs
 Task_1/run.sbatch
+Task_1/run_1.sbatch
 .vscode
 Task_1/gpu.out
 Task_1/gpu.err
+Task_1/gpu_t.out
+Task_1/gpu_t.err
+Task_1/Model/__pycache__

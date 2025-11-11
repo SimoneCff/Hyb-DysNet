@@ -18,8 +18,7 @@ class SANDClassifier (nn.Module):
         self.head = nn.Sequential(
             nn.Dropout(0.5),
             nn.Linear(in_features,256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.SiLU(),
             nn.Linear(256, num_classes)
         )
     
