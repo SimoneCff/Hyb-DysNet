@@ -1,6 +1,6 @@
-Task_1/task1
-Task_1/outputs
-Task_1/run.sbatch
 .vscode
-Task_1/gpu.out
-Task_1/gpu.err
+task1
+run.sbatch
+gpu.err
+gpu.out
+outputs
