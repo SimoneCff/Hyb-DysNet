@@ -28,12 +28,12 @@ from Model.model import crea_modello
 
 # --- 1. CONFIGURAZIONE ---
 LEARNING_RATE = 1e-5 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Rileverà CUDA
 NUM_CLASSI = 5
 CHECKPOINT_DIR_BASE = Path("outputs") 
 EARLY_STOPPING_PATIENCE = 20 
 
-# --- 2. FUNZIONI DI PLOT (plot_confusion_matrix è invariata) ---
+# --- 2. FUNZIONI DI PLOT (Nessuna modifica) ---
 def plot_confusion_matrix(cm_tensor, epoch, save_dir: Path):
     cm_numpy = cm_tensor.cpu().numpy()
     cm_sum = cm_numpy.sum(axis=1)[:, np.newaxis]
@@ -49,7 +49,6 @@ def plot_confusion_matrix(cm_tensor, epoch, save_dir: Path):
     plt.ylabel('True Label (1-5)')
     plt.xlabel('Predicted Label (1-5)')
     plt.title(f'Confusion Matrix - Epoch {epoch}')
-    # Il nome del file ora userà l'epoch (es. "BEST")
     plt.savefig(save_dir / f"confusion_matrix_{epoch}.png") 
     plt.close(fig)
 
@@ -74,8 +73,12 @@ def plot_metrics_history(history: dict, save_dir: Path):
     plt.savefig(save_dir / "metrics_history.png")
     plt.close(fig)
 
-# --- 3. FUNZIONE LOSS E PREDIZIONE PROTOTIPICA (Nessuna modifica) ---
+# --- 3. FUNZIONE LOSS E PREDIZIONE PROTOTIPICA (MODIFICATA) ---
 def prototypical_step(embeddings: torch.Tensor, labels: torch.Tensor, device: torch.device):
+    """
+    Calcola prototipi, distanze e predizioni "in-batch".
+    Versione CUDA-compatibile (usa torch.cdist).
+    """
     prototypes = torch.zeros(NUM_CLASSI, embeddings.shape[1], device=device)
     class_counts = torch.zeros(NUM_CLASSI, device=device)
     
@@ -92,27 +95,34 @@ def prototypical_step(embeddings: torch.Tensor, labels: torch.Tensor, device: to
         
     valid_prototypes = prototypes[valid_class_indices]
     
+    # --- INIZIO MODIFICA: Ripristino di cdist ---
+    # Questa funzione è ottimizzata per CUDA e ora funzionerà.
     distances = torch.cdist(embeddings, valid_prototypes, p=2.0) ** 2
-    
+    # --- FINE MODIFICA ---
+
+    # Mappa le etichette originali (0-4) ai nuovi indici (0-NumClassiValide)
     label_map = {original.item(): new for new, original in enumerate(valid_class_indices)}
     
+    # Filtra solo le etichette e le distanze che hanno un prototipo valido
     valid_mask = torch.isin(labels, valid_class_indices)
     valid_labels = labels[valid_mask]
-    valid_distances = distances[valid_mask]
     
     if valid_labels.shape[0] == 0:
         return None, None, None
         
+    valid_distances = distances[valid_mask]
     mapped_labels = torch.tensor([label_map[l.item()] for l in valid_labels], device=device, dtype=torch.long)
     
+    # Le "logits" per la loss sono le distanze NEGATIVE
     logits = -valid_distances
     
+    # Le predizioni sono l'indice della distanza MINORE
     preds_indices = torch.argmin(distances, dim=1)
-    preds_original = valid_class_indices[preds_indices]
+    preds_original = valid_class_indices[preds_indices] # Converte di nuovo a 0-4
     
     return logits, mapped_labels, preds_original
 
-# --- 4. FUNZIONE DI TRAINING (Nessuna modifica) ---
+# --- 4. FUNZIONE DI TRAINING (MODIFICATA per skip robusto) ---
 def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Progress, epoch_task, train_acc_metric):
     model.train()
     total_loss = 0.0
@@ -121,6 +131,12 @@ def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Pr
     
     batches_skipped = 0
     for i, (waveforms, labels) in enumerate(data_loader):
+        # Aggiungi un controllo per i batch vuoti dal collate_fn
+        if waveforms.shape[0] == 0:
+            progress.update(task, advance=1, metrics="Loss: SKIPPED (Empty Batch)")
+            batches_skipped += 1
+            continue
+
         waveforms = waveforms.to(device)
         labels = labels.to(device)
         
@@ -128,7 +144,7 @@ def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Pr
         logits, mapped_labels, preds = prototypical_step(embeddings, labels, device)
         
         if logits is None: 
-            progress.update(task, advance=1, metrics="Loss: SKIPPED")
+            progress.update(task, advance=1, metrics="Loss: SKIPPED (Batch < 2 classes)")
             batches_skipped += 1
             continue
             
@@ -151,7 +167,7 @@ def train_one_epoch(model, data_loader, loss_fn, optimizer, device, progress: Pr
     avg_epoch_loss = total_loss / num_valid_batches if num_valid_batches > 0 else 0.0
     return avg_epoch_loss, avg_epoch_acc
 
-# --- 5. FUNZIONE DI VALIDAZIONE (Nessuna modifica) ---
+# --- 5. FUNZIONE DI VALIDAZIONE (MODIFICATA per skip robusto) ---
 @torch.no_grad()
 def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, epoch_task_id, metrics: dict):
     model.eval()
@@ -162,6 +178,12 @@ def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, 
     
     batches_skipped = 0
     for waveforms, labels in data_loader:
+        # Aggiungi un controllo per i batch vuoti
+        if waveforms.shape[0] == 0:
+            progress_bar.update(task, advance=1, metrics="Loss: SKIPPED (Empty Batch)")
+            batches_skipped += 1
+            continue
+            
         waveforms = waveforms.to(device)
         labels = labels.to(device)
         
@@ -169,7 +191,7 @@ def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, 
         logits, mapped_labels, preds = prototypical_step(embeddings, labels, device)
         
         if logits is None:
-            progress_bar.update(task, advance=1, metrics="Loss: SKIPPED")
+            progress_bar.update(task, advance=1, metrics="Loss: SKIPPED (Batch < 2 classes)")
             batches_skipped += 1
             continue
             
@@ -203,10 +225,9 @@ def validate_epoch(model, data_loader, loss_fn, device, progress_bar: Progress, 
     
     return avg_loss, epoch_acc, epoch_f1, avg_conf, epoch_cm_data
 
-# --- 6. FUNZIONE DI TRAINING PRINCIPALE (MODIFICATA) ---
+# --- 6. FUNZIONE DI TRAINING PRINCIPALE (Nessuna modifica) ---
 def Train(opt):
     
-    # --- MODIFICA: Setup cartelle ---
     now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     exp_dir = Path(f"outputs/train-FSL-{now_str}")
     ckpt_dir = exp_dir / "checkpoints"
@@ -216,7 +237,7 @@ def Train(opt):
     
     print(f"--- Dati di output salvati in: {exp_dir} ---")
     print(f"--- [bold yellow]MODALITÀ FEW-SHOT LEARNING (PROTOTYPICAL)[/bold yellow] ---")
-    print(f"Using device: {DEVICE}")
+    print(f"Using device: {DEVICE}") # Questo ora stamperà 'cuda'
 
     print("--- 1. Preparing Data ---")
     train_dataset, val_dataset = data_adaptation(
@@ -251,11 +272,11 @@ def Train(opt):
     }
     print("Metrics ready (F1-Score userà 'average=macro').")
 
-    # --- 6. LOGICA DI RESUME (Modificata) ---
+    # --- 6. LOGICA DI RESUME (Nessuna modifica) ---
     start_epoch = 1
     best_val_f1 = -1.0
     epochs_no_improve = 0 
-    best_cm_data = None # <-- NUOVO: Salva la migliore CM
+    best_cm_data = None 
     
     history = {
         'train_loss': [], 'train_acc': [],
@@ -271,7 +292,11 @@ def Train(opt):
             if 'model_state_dict' in checkpoint:
                 print("Checkpoint completo trovato.")
                 model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict']) 
+                try:
+                    optimizer.load_state_dict(checkpoint['optimizer_state_dict']) 
+                except ValueError:
+                     print("[yellow]Attenzione: Impossibile caricare lo stato dell'ottimizzatore. Ripartirà da zero.[/yellow]")
+                
                 start_epoch = checkpoint['epoch'] + 1 
                 if 'best_val_f1' in checkpoint:
                      best_val_f1 = checkpoint['best_val_f1']
@@ -279,7 +304,7 @@ def Train(opt):
                     history = checkpoint['history']
                 if 'epochs_no_improve' in checkpoint:
                      epochs_no_improve = checkpoint['epochs_no_improve']
-                if 'best_cm_data' in checkpoint: # <-- NUOVO
+                if 'best_cm_data' in checkpoint: 
                      best_cm_data = checkpoint['best_cm_data']
             else:
                 print("Checkpoint 'legacy' (solo pesi) trovato.")
@@ -318,9 +343,6 @@ def Train(opt):
                 model, val_loader, loss_fn, DEVICE, progress, epoch_task, val_metrics
             )
             
-            # --- RIMOSSO: Plot CM ad ogni epoca ---
-            # plot_confusion_matrix(epoch_cm, epoch, cm_dir) 
-            
             history['train_loss'].append(avg_train_loss)
             history['train_acc'].append(avg_train_acc.item()) 
             history['val_loss'].append(avg_val_loss)
@@ -335,7 +357,7 @@ def Train(opt):
             is_best = epoch_f1 > best_val_f1
             if is_best:
                 best_val_f1 = epoch_f1
-                best_cm_data = epoch_cm # <-- NUOVO: Salva i dati della CM migliore
+                best_cm_data = epoch_cm 
                 best_model_path = ckpt_dir / "best.pth"
                 torch.save(model.state_dict(), best_model_path)
                 metrics_str += " [yellow](Best Model Saved!)"
@@ -353,7 +375,7 @@ def Train(opt):
                     'best_val_f1': best_val_f1,
                     'history': history,
                     'epochs_no_improve': epochs_no_improve,
-                    'best_cm_data': best_cm_data # <-- NUOVO: Salva la CM migliore
+                    'best_cm_data': best_cm_data
                 }
                 torch.save(checkpoint, checkpoint_path)
 
@@ -372,14 +394,12 @@ def Train(opt):
         plot_metrics_history(history, exp_dir)
         print(f"Metrics plot saved to '{exp_dir}/metrics_history.png'.")
         
-        # --- NUOVO: Plotta la CM migliore alla fine ---
         print("Generating best confusion matrix...")
         if best_cm_data is not None:
             plot_confusion_matrix(best_cm_data, epoch="BEST", save_dir=exp_dir)
             print(f"Best confusion matrix saved to '{exp_dir}/confusion_matrix_BEST.png'.")
         else:
             print("[yellow]No best confusion matrix to save (model did not improve).[/yellow]")
-        # --- FINE BLOCCO ---
     
     print(f"Saving final model to 'last.pth'...")
     last_checkpoint_path = ckpt_dir / "last.pth"
@@ -390,11 +410,10 @@ def Train(opt):
         'best_val_f1': best_val_f1,
         'history': history,
         'epochs_no_improve': epochs_no_improve,
-        'best_cm_data': best_cm_data # Salva anche nel last
+        'best_cm_data': best_cm_data 
     }
     torch.save(checkpoint, last_checkpoint_path)
 
-    # print(f"Confusion matrix plots saved to '{cm_dir}'.") # <-- RIMOSSO
     print(f"Checkpoints saved to '{ckpt_dir}'.")
     print(f"Best model (F1: {best_val_f1:.4f}) saved to '{ckpt_dir}/best.pth'.")
 

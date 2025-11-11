@@ -3,7 +3,7 @@ import torch.nn as nn
 import torchaudio
 import torchaudio.pipelines
 
-class SANDClassifier (nn.Module):
+class SANDClassifier(nn.Module):
     def __init__(self, num_classes=5, freeze_encoder=True):
         super().__init__()
         
@@ -17,3 +17,9 @@ class SANDClassifier (nn.Module):
 
         return pooled_features
         
+
+def crea_modello(num_classes=5, freeze=False):
+    print(f"--- Creazione Modello (FSL Encoder Wav2Vec2) ---")
+    print(f"Encoder congelato: {freeze}")   
+    model = SANDClassifier(num_classes=num_classes, freeze_encoder=freeze)
+    return model
