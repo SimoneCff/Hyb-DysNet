@@ -1,4 +1,6 @@
-.vscode
-task1
+.vscode/
+task1/
 run.sbatch
-Model/__pycache__
+gpu.err
+gpu.out
+outputs/
