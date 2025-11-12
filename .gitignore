@@ -4,3 +4,5 @@ run.sbatch
 gpu.err
 gpu.out
 outputs/
+.DS_Store
+__pycache__
