@@ -1,10 +1,10 @@
 import torch
+import os
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
 from collections import Counter
-
 # Import FSL
 from easyfsl.methods import PrototypicalNetworks
 from easyfsl.samplers import TaskSampler 
@@ -32,15 +32,20 @@ def main():
     
     # Percorsi
     TRAIN_XLSX = "task1/sand_task_1.xlsx"
-    TEST_XLSX = "task1/sand_task_1_test.xlsx"
     AUDIO_DIR = "task1/training"
-    AUDIO_TEST_DIR = "task1/test"
     
     N_WAY = 5
-    N_SHOT = 5 
-    N_QUERY = 5
-    N_EPOCHS = 50
-    N_TASKS_PER_EPOCH = 200
+    N_SHOT = 3 
+    N_SHOT_TRAIN = 3
+    N_QUERY_TRAIN = 1
+    
+    N_SHOT_VAL = 1 
+    N_QUERY_VAL = 1
+    
+    N_EPOCHS = 100
+    N_TASKS_PER_EPOCH = 300
+    
+    
     
     # --- 1. Inizializza i Dataset ---
     print("Inizializzazione Datasets (auto-sufficiente)...")
@@ -51,82 +56,90 @@ def main():
         audio_dir=AUDIO_DIR,
         is_training=True
     )
-    test_dataset = SandDataset(
-        xlsx_file_path=TEST_XLSX,
-        sheet_name="Test Baseline - Task 1",
-        audio_dir=AUDIO_TEST_DIR,
-        is_training=False,
-        label_map_file=TRAIN_XLSX
+    
+    # ✅ USA VALIDATION per monitorare durante training
+    val_dataset = SandDataset(
+        xlsx_file_path=TRAIN_XLSX,
+        sheet_name="Validation Baseline - Task 1",  # ✅ Validation ha le label
+        audio_dir=AUDIO_DIR,
+        is_training=False
     )
 
     # --- ANALISI DATASET ---
     print("\n=== ANALISI DISTRIBUZIONE CLASSI ===")
     train_labels = train_dataset.get_labels()
-    test_labels = test_dataset.get_labels()
+    val_labels = val_dataset.get_labels()  # ✅ Cambiato da test_labels
     
     train_dist = Counter(train_labels)
-    test_dist = Counter(test_labels)
+    val_dist = Counter(val_labels)  # ✅ Cambiato da test_dist
     
     print(f"\nTraining Set - Totale soggetti: {len(train_labels)}")
     for cls in range(5):
         print(f"  Classe {cls+1}: {train_dist.get(cls, 0)} soggetti")
     
-    print(f"\nTest Set - Totale soggetti: {len(test_labels)}")
+    print(f"\nValidation Set - Totale soggetti: {len(val_labels)}")  # ✅ Cambiato
     for cls in range(5):
-        print(f"  Classe {cls+1}: {test_dist.get(cls, 0)} soggetti")
+        print(f"  Classe {cls+1}: {val_dist.get(cls, 0)} soggetti")
     
-    min_samples = min(train_dist.values())
-    required_samples = N_SHOT + N_QUERY
+    min_train_samples = min(train_dist.values())
+    min_val_samples = min(val_dist.values())
+    required_train_samples = N_SHOT_TRAIN + N_QUERY_TRAIN
+    required_val_samples = N_SHOT_VAL + N_QUERY_VAL
     
-    if min_samples < required_samples:
-        print(f"\n⚠️  ATTENZIONE: La classe con meno campioni ha {min_samples} soggetti,")
-        print(f"   ma servono almeno {required_samples} (N_SHOT={N_SHOT} + N_QUERY={N_QUERY})!")
-        print(f"   Riduci N_SHOT o N_QUERY, oppure rimuovi la classe sbilanciata.")
+    if min_train_samples < required_train_samples:
+        print(f"\n⚠️  ATTENZIONE: Training - La classe con meno campioni ha {min_train_samples} soggetti,")
+        print(f"   ma servono almeno {required_train_samples} (N_SHOT={N_SHOT_TRAIN} + N_QUERY={N_QUERY_TRAIN})!")
         return
     
-    print(f"\n✓ Configurazione valida: ogni classe ha almeno {required_samples} soggetti\n")
+    if min_val_samples < required_val_samples:
+        print(f"\n⚠️  ATTENZIONE: Validation - La classe con meno campioni ha {min_val_samples} soggetti,")
+        print(f"   ma servono almeno {required_val_samples} (N_SHOT={N_SHOT_VAL} + N_QUERY={N_QUERY_VAL})!")
+        return
+    
+    print(f"\n✓ Configurazione valida: Train needs {required_train_samples}, Val needs {required_val_samples}\n")
 
     print("Inizializzazione Sampler FSL...")
     train_sampler = TaskSampler(
         train_dataset, 
         n_way=N_WAY, 
-        n_shot=N_SHOT, 
-        n_query=N_QUERY, 
+        n_shot=N_SHOT_TRAIN,  # ✅ Usa parametri training
+        n_query=N_QUERY_TRAIN,  # ✅ Usa parametri training
         n_tasks=N_TASKS_PER_EPOCH
     )
     train_loader = DataLoader(
         train_dataset,
         batch_sampler=train_sampler,
-        num_workers=4,  # Ridotto per stabilità
+        num_workers=4,
         collate_fn=train_sampler.episodic_collate_fn,
         pin_memory=True
     )
 
     val_sampler = TaskSampler(
-        test_dataset,
+        val_dataset,
         n_way=N_WAY,
-        n_shot=N_SHOT,
-        n_query=N_QUERY,
-        n_tasks=50  # Meno task per validation (più veloce)
+        n_shot=N_SHOT_VAL,  # ✅ Usa parametri validation (più piccoli)
+        n_query=N_QUERY_VAL,  # ✅ Usa parametri validation (più piccoli)
+        n_tasks=50
     )
     val_loader = DataLoader(
-        test_dataset,
+        val_dataset,
         batch_sampler=val_sampler,
         num_workers=4,
         collate_fn=val_sampler.episodic_collate_fn,
         pin_memory=True
     )
-    
+    # Verifica soggetti duplicati
     train_subjects = set([s[0] for s in train_dataset.subjects])
-    val_subjects = set([s[0] for s in test_dataset.subjects])
+    val_subjects = set([s[0] for s in val_dataset.subjects])  # ✅ Cambiato
 
     overlap = train_subjects.intersection(val_subjects)
     if overlap:
         print(f"⚠️ ATTENZIONE: {len(overlap)} soggetti presenti sia in train che in validation!")
         print(f"Soggetti duplicati: {list(overlap)[:10]}...")
-        test_dataset.subjects = [s for s in test_dataset.subjects if s[0] not in train_subjects]
-        print(f"✓ Rimossi i duplicati. Nuovo size validation: {len(test_dataset.subjects)}")
+        val_dataset.subjects = [s for s in val_dataset.subjects if s[0] not in train_subjects]  # ✅ Cambiato
+        print(f"✓ Rimossi i duplicati. Nuovo size validation: {len(val_dataset.subjects)}")
 
+    # ... resto del codice rimane uguale ...
     backbone = resnet18()
     backbone_with_dropout = DropoutBackbone(backbone)
     model = PrototypicalNetworks(backbone=backbone_with_dropout).to(DEVICE)

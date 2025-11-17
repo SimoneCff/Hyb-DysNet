@@ -46,11 +46,12 @@ class SandDataset(Dataset):
 
         print(f"Costruzione label_map dal foglio 'SAND - TRAINING set - Task 1'...")
         try:
-            df_full = pd.read_excel(xlsx_file_path, sheet_name="SAND - TRAINING set - Task 1")
+            label_file = label_map_file if label_map_file is not None else xlsx_file_path
+            df_full = pd.read_excel(label_file, sheet_name="SAND - TRAINING set - Task 1")
             self.label_map = {row['ID']: row['Class'] for _, row in df_full.iterrows()}
             print(f"Label map creata con {len(self.label_map)} ID.")
         except Exception as e:
-            print(f"Errore CRITICO: Impossibile leggere il foglio 'SAND - TRAINING set - Task 1' da {xlsx_file_path}")
+            print(f"Errore CRITICO: Impossibile leggere il foglio 'SAND - TRAINING set - Task 1' da {label_file}")
             raise e
 
         print(f"Costruzione subject list per il foglio: {sheet_name}...")
