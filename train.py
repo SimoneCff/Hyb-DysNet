@@ -43,9 +43,6 @@ def main():
     N_EPOCHS = 100
     N_TASKS_PER_EPOCH = 300
     
-    
-    
-    # --- 1. Inizializza i Dataset ---
     print("Inizializzazione Datasets (auto-sufficiente)...")
     
     train_dataset = SandDataset(
@@ -55,10 +52,9 @@ def main():
         is_training=True
     )
     
-    # ✅ USA VALIDATION per monitorare durante training
     val_dataset = SandDataset(
         xlsx_file_path=TRAIN_XLSX,
-        sheet_name="Validation Baseline - Task 1",  # ✅ Validation ha le label
+        sheet_name="Validation Baseline - Task 1",  
         audio_dir=AUDIO_DIR,
         is_training=False
     )
@@ -66,16 +62,16 @@ def main():
     # --- ANALISI DATASET ---
     print("\n=== ANALISI DISTRIBUZIONE CLASSI ===")
     train_labels = train_dataset.get_labels()
-    val_labels = val_dataset.get_labels()  # ✅ Cambiato da test_labels
+    val_labels = val_dataset.get_labels() 
     
     train_dist = Counter(train_labels)
-    val_dist = Counter(val_labels)  # ✅ Cambiato da test_dist
+    val_dist = Counter(val_labels)  
     
     print(f"\nTraining Set - Totale soggetti: {len(train_labels)}")
     for cls in range(5):
         print(f"  Classe {cls+1}: {train_dist.get(cls, 0)} soggetti")
     
-    print(f"\nValidation Set - Totale soggetti: {len(val_labels)}")  # ✅ Cambiato
+    print(f"\nValidation Set - Totale soggetti: {len(val_labels)}")
     for cls in range(5):
         print(f"  Classe {cls+1}: {val_dist.get(cls, 0)} soggetti")
     
@@ -100,8 +96,8 @@ def main():
     train_sampler = TaskSampler(
         train_dataset, 
         n_way=N_WAY, 
-        n_shot=N_SHOT_TRAIN,  # ✅ Usa parametri training
-        n_query=N_QUERY_TRAIN,  # ✅ Usa parametri training
+        n_shot=N_SHOT_TRAIN,  
+        n_query=N_QUERY_TRAIN,
         n_tasks=N_TASKS_PER_EPOCH
     )
     train_loader = DataLoader(
@@ -115,8 +111,8 @@ def main():
     val_sampler = TaskSampler(
         val_dataset,
         n_way=N_WAY,
-        n_shot=N_SHOT_VAL,  # ✅ Usa parametri validation (più piccoli)
-        n_query=N_QUERY_VAL,  # ✅ Usa parametri validation (più piccoli)
+        n_shot=N_SHOT_VAL,  
+        n_query=N_QUERY_VAL,  
         n_tasks=50
     )
     val_loader = DataLoader(
@@ -126,18 +122,16 @@ def main():
         collate_fn=val_sampler.episodic_collate_fn,
         pin_memory=True
     )
-    # Verifica soggetti duplicati
     train_subjects = set([s[0] for s in train_dataset.subjects])
-    val_subjects = set([s[0] for s in val_dataset.subjects])  # ✅ Cambiato
+    val_subjects = set([s[0] for s in val_dataset.subjects]) 
 
     overlap = train_subjects.intersection(val_subjects)
     if overlap:
         print(f"⚠️ ATTENZIONE: {len(overlap)} soggetti presenti sia in train che in validation!")
         print(f"Soggetti duplicati: {list(overlap)[:10]}...")
-        val_dataset.subjects = [s for s in val_dataset.subjects if s[0] not in train_subjects]  # ✅ Cambiato
+        val_dataset.subjects = [s for s in val_dataset.subjects if s[0] not in train_subjects] 
         print(f"✓ Rimossi i duplicati. Nuovo size validation: {len(val_dataset.subjects)}")
 
-    # ... resto del codice rimane uguale ...
     backbone = resnet18()
     backbone_with_dropout = DropoutBackbone(backbone)
     model = PrototypicalNetworks(backbone=backbone_with_dropout).to(DEVICE)
@@ -173,7 +167,6 @@ def main():
                 loss.backward()
                 optimizer.step()
                 
-                # Calcola accuracy durante il training
                 _, predictions = torch.max(query_logits, 1)
                 correct += (predictions == query_labels).sum().item()
                 total += query_labels.size(0)
@@ -232,12 +225,11 @@ def main():
         print(f"Support shape: {support_images.shape}")
         print(f"Query shape: {query_images.shape}")
         
-        # Verifica che non ci siano label duplicate nel query set
         unique_query = torch.unique(query_labels)
         if len(unique_query) < N_WAY:
             print(f"⚠️ PROBLEMA: Solo {len(unique_query)} classi uniche nel query set!")
         
-        if i >= 2:  # Mostra solo i primi 3 batch
+        if i >= 2:
             break
     
     print(f"\n🎉 Training completato. Migliore accuratezza sul test set: {100*best_val_acc:.2f}%")
