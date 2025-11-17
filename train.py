@@ -1,9 +1,7 @@
 import torch
-import os
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import numpy as np
 from collections import Counter
 # Import FSL
 from easyfsl.methods import PrototypicalNetworks
