@@ -1,14 +1,3 @@
-"""
-train.py
-
-Addestra un modello Few-Shot (Prototypical Networks)
-utilizzando un backbone ResNet18 su Spettrogrammi Mel.
-
-MODIFICHE per dataset sbilanciato:
-- Ridotto N_SHOT e N_QUERY per adattarsi alla classe con meno campioni
-- Aggiunto Class Balancing per il sampler
-"""
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -26,25 +15,32 @@ try:
 except ImportError:
     print("Errore: Assicurati che 'dataset.py' (Versione Spettrogrammi) sia nella stessa cartella.")
     exit(1)
-
-# --- 1. Funzione Main ---
-def main():
     
-    # --- Configurazione ---
+class DropoutBackbone(nn.Module):
+    def __init__(self, backbone):
+        super().__init__()
+        self.backbone = backbone
+        self.dropout = nn.Dropout(0.5)
+    
+    def forward(self, x):
+        features = self.backbone(x)
+        return self.dropout(features)
+
+
+def main():
     DEVICE = torch.device("mps")
     
     # Percorsi
     TRAIN_XLSX = "task1/sand_task_1.xlsx"
-    TEST_XLSX = "task1/sand_task_1_test.xlsx"  # Nome corretto del file test
+    TEST_XLSX = "task1/sand_task_1_test.xlsx"
     AUDIO_DIR = "task1/training"
     AUDIO_TEST_DIR = "task1/test"
     
-    # Parametri FSL - RIDOTTI per dataset sbilanciato
     N_WAY = 5
-    N_SHOT = 3  # Ridotto da 5 a 3 (Classe 1 ha solo 6 soggetti)
-    N_QUERY = 2  # Ridotto da 10 a 2 per evitare sovrapposizioni
-    N_EPOCHS = 30  # Aumentato per compensare meno samples per task
-    N_TASKS_PER_EPOCH = 100
+    N_SHOT = 5 
+    N_QUERY = 5
+    N_EPOCHS = 50
+    N_TASKS_PER_EPOCH = 200
     
     # --- 1. Inizializza i Dataset ---
     print("Inizializzazione Datasets (auto-sufficiente)...")
@@ -55,15 +51,12 @@ def main():
         audio_dir=AUDIO_DIR,
         is_training=True
     )
-    
-    # Usa il Test set per la validazione (file Excel separato)
-    # IMPORTANTE: Per il test set, passiamo il file di training per la label_map
     test_dataset = SandDataset(
         xlsx_file_path=TEST_XLSX,
         sheet_name="Test Baseline - Task 1",
         audio_dir=AUDIO_TEST_DIR,
         is_training=False,
-        label_map_file=TRAIN_XLSX  # Usa il file di training per le label
+        label_map_file=TRAIN_XLSX
     )
 
     # --- ANALISI DATASET ---
@@ -82,7 +75,6 @@ def main():
     for cls in range(5):
         print(f"  Classe {cls+1}: {test_dist.get(cls, 0)} soggetti")
     
-    # Verifica che ogni classe abbia abbastanza soggetti
     min_samples = min(train_dist.values())
     required_samples = N_SHOT + N_QUERY
     
@@ -94,7 +86,6 @@ def main():
     
     print(f"\n✓ Configurazione valida: ogni classe ha almeno {required_samples} soggetti\n")
 
-    # --- 2. Inizializza i Sampler e Loader FSL ---
     print("Inizializzazione Sampler FSL...")
     train_sampler = TaskSampler(
         train_dataset, 
@@ -125,18 +116,26 @@ def main():
         collate_fn=val_sampler.episodic_collate_fn,
         pin_memory=True
     )
-
-    # --- 3. Inizializza Modello e Optimizer ---
-    print("Caricamento backbone ResNet18...")
-    backbone = resnet18()
-    model = PrototypicalNetworks(backbone=backbone).to(DEVICE)
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    train_subjects = set([s[0] for s in train_dataset.subjects])
+    val_subjects = set([s[0] for s in test_dataset.subjects])
+
+    overlap = train_subjects.intersection(val_subjects)
+    if overlap:
+        print(f"⚠️ ATTENZIONE: {len(overlap)} soggetti presenti sia in train che in validation!")
+        print(f"Soggetti duplicati: {list(overlap)[:10]}...")
+        test_dataset.subjects = [s for s in test_dataset.subjects if s[0] not in train_subjects]
+        print(f"✓ Rimossi i duplicati. Nuovo size validation: {len(test_dataset.subjects)}")
+
+    backbone = resnet18()
+    backbone_with_dropout = DropoutBackbone(backbone)
+    model = PrototypicalNetworks(backbone=backbone_with_dropout).to(DEVICE)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
     
     criterion = nn.CrossEntropyLoss()
 
-    # --- 4. Loop di Training ---
     print(f"\n--- Inizio Training FSL ({N_WAY}-way {N_SHOT}-shot) ---")
     best_val_acc = 0
     
@@ -176,7 +175,6 @@ def main():
         
         scheduler.step()
 
-        # --- 5. Loop di Validazione su Test Set ---
         model.eval()
         val_correct = 0
         val_total = 0
@@ -213,6 +211,24 @@ def main():
                 'best_val_acc': best_val_acc,
             }, "fsl_resnet18_backbone_best.pth")
 
+    for i, batch in enumerate(train_loader):
+        support_images, support_labels, query_images, query_labels, class_ids = batch
+        
+        print(f"\n=== Batch {i} ===")
+        print(f"Support labels: {support_labels.cpu().numpy()}")
+        print(f"Query labels: {query_labels.cpu().numpy()}")
+        print(f"Class IDs: {class_ids}")
+        print(f"Support shape: {support_images.shape}")
+        print(f"Query shape: {query_images.shape}")
+        
+        # Verifica che non ci siano label duplicate nel query set
+        unique_query = torch.unique(query_labels)
+        if len(unique_query) < N_WAY:
+            print(f"⚠️ PROBLEMA: Solo {len(unique_query)} classi uniche nel query set!")
+        
+        if i >= 2:  # Mostra solo i primi 3 batch
+            break
+    
     print(f"\n🎉 Training completato. Migliore accuratezza sul test set: {100*best_val_acc:.2f}%")
 
 if __name__ == "__main__":

@@ -1,16 +1,3 @@
-"""
-dataset.py
-
-(Versione Spettrogrammi, Auto-Sufficiente, CORRETTA per FSL)
-
-IMPORTANTE: Per Few-Shot Learning, dobbiamo evitare il data leakage.
-Questo significa che campioni dello stesso soggetto NON devono apparire
-sia nel support che nel query set dello stesso episodio.
-
-Soluzione: Usiamo un dataset "raggruppato per soggetto" dove ogni
-"sample" rappresenta TUTTI gli 8 file di un soggetto.
-"""
-
 import re
 import torch
 import torchaudio
@@ -37,23 +24,6 @@ TO_DB_TRANSFORM = T.AmplitudeToDB()
 
 
 class SandDataset(Dataset):
-    """
-    Dataset per Few-Shot Learning SENZA data leakage.
-    
-    Ogni "sample" del dataset corrisponde a UN SOGGETTO (non a un singolo file).
-    Quando richiesto, restituisce UNO dei suoi 8 file audio in modo casuale.
-    
-    Questo garantisce che il TaskSampler selezioni soggetti diversi
-    per support e query set.
-    
-    Args:
-        xlsx_file_path (str): Percorso al file Excel con i soggetti da usare
-        sheet_name (str): Nome del foglio con la lista dei soggetti
-        audio_dir (str): Cartella contenente gli audio
-        is_training (bool): Se True, applica augmentation
-        label_map_file (str, optional): File Excel separato per la label_map.
-                                        Se None, usa xlsx_file_path
-    """
     
     def __init__(self, xlsx_file_path: str, sheet_name: str, audio_dir: str, 
                  is_training: bool = False, label_map_file: str = None):
@@ -74,7 +44,6 @@ class SandDataset(Dataset):
             'rhythmKA', 'rhythmPA', 'rhythmTA'
         ]
 
-        # --- 1. Costruisci la Mappa delle Etichette ---
         print(f"Costruzione label_map dal foglio 'SAND - TRAINING set - Task 1'...")
         try:
             df_full = pd.read_excel(xlsx_file_path, sheet_name="SAND - TRAINING set - Task 1")
@@ -84,7 +53,6 @@ class SandDataset(Dataset):
             print(f"Errore CRITICO: Impossibile leggere il foglio 'SAND - TRAINING set - Task 1' da {xlsx_file_path}")
             raise e
 
-        # --- 2. Costruisci la Lista dei SOGGETTI (non dei file) ---
         print(f"Costruzione subject list per il foglio: {sheet_name}...")
         try:
             df_split = pd.read_excel(xlsx_file_path, sheet_name=sheet_name)
@@ -105,7 +73,6 @@ class SandDataset(Dataset):
                 
             label_0_4 = label - 1
             
-            # Raccogli tutti gli 8 file di questo soggetto
             subject_files = []
             for task in self.task_names:
                 folder_name = f"{subject_id}_{task}"
@@ -120,7 +87,6 @@ class SandDataset(Dataset):
             print(f"ATTENZIONE: 0 soggetti trovati. Verifica che il percorso AUDIO_DIR '{self.audio_dir}' sia corretto.")
 
     def __len__(self):
-        """Numero di soggetti (non di file)"""
         return len(self.subjects)
 
     def _get_resampler(self, orig_freq: int):
@@ -129,7 +95,6 @@ class SandDataset(Dataset):
         return self.resampler_cache[orig_freq]
 
     def _load_audio_file(self, file_path: str):
-        """Carica e preprocessa un singolo file audio"""
         try:
             waveform, sample_rate = torchaudio.load(file_path)
             
@@ -166,25 +131,18 @@ class SandDataset(Dataset):
         except Exception as e:
             # print(f"Errore nel caricare il file {file_path}: {e}")
             return torch.zeros((3, N_MELS, 157))
-
+        
     def __getitem__(self, index: int):
-        """
-        Restituisce UNO dei file audio del soggetto selezionato casualmente.
-        Questo crea variabilità intra-soggetto mantenendo separazione tra soggetti.
-        """
         subject_id, label, file_paths = self.subjects[index]
         
-        # Scegli un file casuale tra gli 8 disponibili
-        chosen_file = random.choice(file_paths)
+        if not self.is_training:
+            chosen_file = file_paths[0]
+        else:
+            chosen_file = file_paths[index % len(file_paths)]
         
         mel_spec = self._load_audio_file(chosen_file)
         
         return mel_spec, label
 
     def get_labels(self):
-        """
-        Richiesto da easyfsl.TaskSampler.
-        Ritorna una lista di tutte le etichette (0-4) nel dataset.
-        """
-        # self.subjects è una lista di tuple: (subject_id, label_0_4, [file_paths])
         return [label for (_, label, _) in self.subjects]
