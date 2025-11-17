@@ -1,8 +1,6 @@
 .vscode/
 task1/
-run.sbatch
-gpu.err
-gpu.out
 outputs/
 .DS_Store
 __pycache__
+*.pth
