@@ -21,17 +21,4 @@ The model must classify each subject into one of the following five classes:
 
 - Healthy Subject (Class 5)
 
-## Task 2: Multi-Class Prediction (Latest Assessment)
-Objective: To predict the ALSFRS-R scale of the patient assessed during the last follow-up visit (after a maximum of 11 months). The aim is to accurately predict how the condition will progress, enabling early intervention and better patient care.
-
-For this task, four classes are considered:
-
-- ALS with Severe dysarthria (Class 1)
-
-- ALS with Moderate dysarthria (Class 2)
-
-- ALS with Mild dysarthria (Class 3)
-
-- ALS with No dysarthria (Class 4)
-
 ## Our Approach
