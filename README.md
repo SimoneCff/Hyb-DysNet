@@ -2,8 +2,8 @@
 
 > **SAND Challenge Task 1 Submission** (IEEE ICASSP 2026)
 
-**Authors:** PCL Team (Parthenope Computational Intelligence & Smart Systems Lab)
-**Task:** Task 1 - Multi-class classification at T0  
+**Authors:** PCL Team (Parthenope Computational Intelligence & Smart Systems Lab).
+**Task:** Task 1 - Multi-class classification at T0.
 **Objective:** Classify ALS patients into 5 severity levels of dysarthria using audio signals.
 
 ---
