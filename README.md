@@ -21,4 +21,13 @@ The model must classify each subject into one of the following five classes:
 
 - Healthy Subject (Class 5)
 
-## Our Approach
+## Our Approach - Hyb-DysNet
+
+To address the critical challenges of this dataset (**small sample size** and **extreme class imbalance**), we developed **Hyb-DysNet**, a hybrid framework that fuses:
+
+1.  **Hand-Crafted Features (OpenSMILE):** Extracts 88 robust clinical features (eGeMAPSv02) like jitter, shimmer, and formants.
+2.  **Deep Embeddings (Wav2Vec2-XLS-R):** Uses a pre-trained 300M parameter transformer to capture high-level semantic context from raw audio.
+3.  **Feature Selection:** Reduces noise by selecting only the most discriminative features.
+4.  **Ensemble Learning:** A soft-voting classifier combining **XGBoost**, **LightGBM**, and **Logistic Regression**, trained on **SMOTE-balanced** data.
+
+This notebook implements the full pipeline: **Feature Extraction**, **Training**, **Evaluation**, and **Submission Generation**.
