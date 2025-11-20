@@ -4,6 +4,8 @@ This repository contains our submission for the SAND (Speech Analysis for Neurod
 
 The goal of this project is to develop an Artificial Intelligence system for the diagnosis and classification of dysarthria severity in ALS patients, using only vocal signals.
 
+Dataset is been given by the SAND Challenge Team
+
 ## Task 1: Multi-Class Classification (T0)
 As per the challenge specifications, our primary focus is Task 1.
 
@@ -31,3 +33,4 @@ To address the critical challenges of this dataset (**small sample size** and **
 4.  **Ensemble Learning:** A soft-voting classifier combining **XGBoost**, **LightGBM**, and **Logistic Regression**, trained on **SMOTE-balanced** data.
 
 This notebook implements the full pipeline: **Feature Extraction**, **Training**, **Evaluation**, and **Submission Generation**.
+
