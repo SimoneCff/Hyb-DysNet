@@ -60,10 +60,6 @@ Our approach was evaluated on the official **Validation Baseline** split provide
 ##  Repository Structure
 ```
 .
-├── models/                          # Saved model artifacts (generated during training)
-│   ├── ensemble_fusion.joblib       # The trained Soft-Voting Ensemble model
-│   ├── scaler_hybrid.joblib         # StandardScaler fitted on training data
-│   └── selector_hybrid.joblib       # SelectKBest feature selector
 ├── notebooks/                       # Source code and experiments
 │   └──  sand_challenge_submission.ipynb  # Main notebook (Extraction, Training, Inference)
 ├── submission/                      # Final output files
